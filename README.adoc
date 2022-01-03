@@ -1,0 +1,192 @@
+= Entwickeln von Kubernetes Anwendungen in Java mit Spring Boot
+
+Containervirtualisierung ist in den letzten Jahren zu einem wichtigen Bestandteil moderner Microservice-Architekturen geworden. Container ermöglichen eine feingranulare Ressourcenzuweisung, konsistente Laufzeitumgebungen und eine Isolation von dem Host-Betriebssystem. Dadurch bieten sie eine effiziente Möglichkeit Unternehmensanwendungen bereitzustellen, wobei der Betrieb von produktiven Anwendungen eine entsprechende Verwaltung der Container erfordert. So muss beispielsweise gewährleistet werden, dass es keine Ausfallzeiten gibt.
+
+Kubernetes bietet nun eine Framework für das Deployment und die Überwachung der Container, um Unternehmensanwendungen sicher betreiben zu können.
+
+Mehr zu Kubernetes: https://kubernetes.io/docs/concepts/overview/what-is-kubernetes/
+
+Dieser Artikel beschriebt ein praktisches Beispiel zur Entwicklung einer Spring-Boot-basierten Anwendung auf Kubernetes.
+
+== Entwicklung des Deployments auf Kubernetes für eine Spring Boot Anwendung
+
+=== Vorbereitung auf Windows
+
+* Docker Desktop -> enable kubernetes
+* https://chocolatey.org/install
+* kubectl, helm, skaffold, superbenchmarker
+* IntelliJ mit Cloud Code Plugin
+* Java 17
+
+=== "Hello world" in Spring Boot
+
+* IntelliJ: Neues Projekt > Spring Boot Initializer
+** Name: k8s-demo
+** Maven, Java 17, Jar Packaging
+** Abhängigkeiten: Spring Web, Spring Boot Actuator, Prometheus
+
+Klasse "HelloController" hinzufügen:
+
+[source,java]
+----
+package com.example.k8sdemo;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class HelloController {
+
+    @GetMapping("/hello")
+    public String hello() {
+        return String.format("Guten Tag wünscht %s!", System.getenv("HOSTNAME"));
+    }
+}
+----
+
+application.properties:
+
+[source,properties]
+----
+management.endpoints.web.exposure.include=health,info,prometheus
+management.metrics.tags.application=K8sDemoApp
+----
+
+=== Deployment manifeste für Kubernetes
+
+1. Neuen Ordner erstellen "k8s"
+2. Dateien "k8s-demo.deployment.yaml" und "k8s-demo.service.yaml" erstellen
+
+k8s-demo.deployment.yaml:
+
+[source,yaml]
+----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-demo-deployment
+spec:
+  selector:
+    matchLabels:
+      app: k8s-demo
+  template:
+    metadata:
+      labels:
+        app: k8s-demo
+    spec:
+      containers:
+      - name: k8s-demo
+        image: k8s-demo:0.0.1-SNAPSHOT
+        ports:
+          - containerPort: 8080
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "100m"
+          limits:
+            memory: "1024Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8080
+          failureThreshold: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+----
+
+k8s-demo.service.yaml:
+
+[source,yaml]
+----
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-demo-svc
+  labels:
+    app: k8s-demo
+spec:
+  selector:
+    app: k8s-demo
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+----
+
+=== Testen des Deployment in Docker Desktop mit Skaffold
+
+skaffold.yaml:
+
+[source,yaml]
+----
+apiVersion: skaffold/v2beta25
+kind: Config
+build:
+  artifacts:
+  - image: k8s-demo
+    buildpacks:
+      builder: gcr.io/buildpacks/builder:v1
+      env:
+      - GOOGLE_RUNTIME_VERSION=17
+deploy:
+  kubectl: {}
+----
+
+IntelliJ: Tools > Cloud Code > Kubernetes > Run your application on Kubernetes > Run
+
+Sobald die Anwendung gestartet ist, kann die URL, über die sie errreichbar ist, aus dem "Service URLs" Tab kopiert werden. Das öffnen des /hello Endpoints zeigt, dass die Anwendung in Kubernetes als Container gestartet ist: http://127.0.0.1:8081/hello
+
+Es ist auch möglich die Anwendung im Debug-Modus zu starten. Skaffold leitet automatisch die notwendigen Ports für Java Debug Wire Protocol (JDWP) weiter. Damit kleine Änderungen am Source Code nicht zu langen Wartezeiten durch ein Neu-Deployment in Kubernetes führen, kann im Debug-Modus HotSwapping genutzt werden.
+
+Die Entwicklung in einem Kubernetes Cluster mit Skaffold hat den Vorteil, dass eine Anwendung genauso entwickelt werden kann, wie sie in der CI-Pipeline gebaut und in der CD-Pipeline deployt wird. Dadurch werden Unterschiede zwischen den verschiedenen Umgebungen reduziert und Fehler schneller gefunden.
+
+
+
+
+////
+== PART 2-3
+
+=== Monitoring in unsere Entwicklungsumgebung einbauen
+
+*Add repos*
+
+  $ helm repo add grafana https://grafana.github.io/helm-charts
+  $ helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  $ helm repo update
+
+*Install*
+
+  $ helm install loki --create-namespace -n=monitoring grafana/loki-stack
+  $ kubectl apply -f loki-datasource.yaml
+  $ helm install kube-prometheus-stack --create-namespace -n=monitoring prometheus-community/kube-prometheus-stack -f kube-prometheus-stack.yaml
+
+* Open http://localhost:30080/ and login with grafana credentials: admin/prom-operator
+* Goto Dashboards > Browse > Import
+* Enter Grafana ID https://grafana.com/grafana/dashboards/4701[4701] and click "Load"
+* Create dashboard "JVM (Micrometer)"
+* Select Application "K8sDemoApp" and newest instance
+
+*Uninstall*
+
+  $ helm uninstall kube-prometheus-stack -n=monitoring
+  $ helm uninstall loki -n=monitoring
+
+== Lokales Testen produktiver Anforderungen
+
+=== Selbstheilung von abgestürzten Anwendungen
+
+=== Last erzeugen mit superbenchmarker
+
+  $ sb -u "http://localhost:8080/hello" -c 10 -n 100
+
+=== Automatische Skalierung
+
+== Ausblick
+////
