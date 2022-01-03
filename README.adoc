@@ -6,7 +6,7 @@ Kubernetes bietet nun eine Framework für das Deployment und die Überwachung de
 
 Mehr zu Kubernetes: https://kubernetes.io/docs/concepts/overview/what-is-kubernetes/
 
-Dieser Artikel beschriebt ein praktisches Beispiel zur Entwicklung einer Spring-Boot-basierten Anwendung auf Kubernetes.
+Hier wird ein praktisches Beispiel zur Entwicklung einer Spring-Boot-basierten Anwendung auf Kubernetes beschrieben.
 
 == Entwicklung des Deployments auf Kubernetes für eine Spring Boot Anwendung
 
@@ -14,7 +14,7 @@ Dieser Artikel beschriebt ein praktisches Beispiel zur Entwicklung einer Spring-
 
 * Docker Desktop -> enable kubernetes
 * https://chocolatey.org/install
-* kubectl, helm, skaffold, superbenchmarker
+* choco install kubernetes-cli kubernetes-helm skaffold superbenchmarker
 * IntelliJ mit Cloud Code Plugin
 * Java 17
 
